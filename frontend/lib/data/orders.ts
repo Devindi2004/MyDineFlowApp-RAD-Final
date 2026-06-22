@@ -1,0 +1,67 @@
+import type { CustomerOrder } from "@/types/order";
+
+export const mockOrders: CustomerOrder[] = [
+  {
+    id: "ord-78423",
+    orderNumber: "DF-78423",
+    status: "new",
+    tableNumber: "05",
+    customerName: "Nethmi",
+    contactNumber: "+94 77 123 4567",
+    specialInstructions: "Less chilli on the kottu.",
+    paymentMethod: "payhere",
+    totalAmount: 9450,
+    createdAt: new Date(Date.now() - 1000 * 60 * 2).toISOString(),
+    items: [
+      { id: "df-002", name: "Lagoon Crab Kottu", quantity: 2, price: 3250 },
+      { id: "df-008", name: "King Coconut Spritz", quantity: 2, price: 1250 },
+    ],
+  },
+  {
+    id: "ord-78422",
+    orderNumber: "DF-78422",
+    status: "preparing",
+    tableNumber: "11",
+    customerName: "Kasun",
+    contactNumber: "+94 71 884 1212",
+    specialInstructions: "Bring desserts after mains.",
+    paymentMethod: "card",
+    totalAmount: 18200,
+    createdAt: new Date(Date.now() - 1000 * 60 * 8).toISOString(),
+    items: [
+      { id: "df-001", name: "Ceylon Pepper Tenderloin", quantity: 2, price: 4850 },
+      { id: "df-003", name: "Saffron Prawn Risotto", quantity: 1, price: 3950 },
+      { id: "df-007", name: "Dark Chocolate Fondant", quantity: 2, price: 1550 },
+    ],
+  },
+  {
+    id: "ord-78421",
+    orderNumber: "DF-78421",
+    status: "ready",
+    tableNumber: "03",
+    customerName: "Ayesha",
+    contactNumber: "+94 76 991 4422",
+    paymentMethod: "cash",
+    totalAmount: 6200,
+    createdAt: new Date(Date.now() - 1000 * 60 * 14).toISOString(),
+    items: [
+      { id: "df-006", name: "Truffle Mushroom Linguine", quantity: 1, price: 2850 },
+      { id: "df-005", name: "Garden Jackfruit Bowl", quantity: 1, price: 2150 },
+    ],
+  },
+  {
+    id: "ord-78420",
+    orderNumber: "DF-78420",
+    status: "completed",
+    tableNumber: "08",
+    customerName: "Dinuka",
+    contactNumber: "+94 75 400 1020",
+    paymentMethod: "payhere",
+    totalAmount: 12750,
+    createdAt: new Date(Date.now() - 1000 * 60 * 25).toISOString(),
+    items: [
+      { id: "df-004", name: "Smoked Chicken Bao Trio", quantity: 3, price: 2450 },
+      { id: "df-008", name: "King Coconut Spritz", quantity: 3, price: 1250 },
+    ],
+  },
+];

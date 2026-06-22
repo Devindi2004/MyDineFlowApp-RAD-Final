@@ -1,0 +1,12 @@
+.claude/
+.codex-logs/
+.mongo-data/
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store

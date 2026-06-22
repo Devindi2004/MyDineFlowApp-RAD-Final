@@ -1,0 +1,34 @@
+{
+  "name": "DineFlow Waiter",
+  "short_name": "DineFlow",
+  "description": "Installable DineFlow waiter dashboard for order service and table workflows.",
+  "start_url": "/waiter",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fff8e1",
+  "theme_color": "#ffcc00",
+  "categories": ["food", "business", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/waiter-app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Orders",
+      "short_name": "Orders",
+      "url": "/waiter",
+      "description": "Open the waiter order board"
+    },
+    {
+      "name": "Attendance",
+      "short_name": "Attendance",
+      "url": "/waiter/attendance",
+      "description": "Open waiter attendance QR"
+    }
+  ]
+}
