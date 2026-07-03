@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { getAttendanceSummary, getMyAttendance, getMyAttendanceQr, kioskAttendanceLog, kioskAttendanceStatus, kioskMarkAttendance, listAttendance } from "../controllers/attendanceController";
+import { exportAttendanceReport } from "../controllers/attendanceExportController";
 import { authenticate, authorize } from "../middleware/auth";
 
 const router = Router();
@@ -7,6 +8,7 @@ const router = Router();
 router.use(authenticate, authorize("admin"));
 router.get("/", listAttendance);
 router.get("/summary", getAttendanceSummary);
+router.post("/export", exportAttendanceReport);
 
 export default router;
 

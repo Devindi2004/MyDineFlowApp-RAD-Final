@@ -5599,10 +5599,38 @@ html[data-theme="dark"] .admin-inventory-form select.input {
 }
 
 .payment-card {
-  padding: 30px;
-  max-width: 620px;
-  display: grid;
-  gap: 12px;
+  padding: 36px 32px;
+  max-width: 520px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  margin: 24px auto;
+}
+
+.payment-summary {
+  width: 100%;
+  background: var(--section-bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+  margin-top: 4px;
+}
+
+.payment-summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+}
+
+.payment-summary-row span {
+  color: var(--muted);
 }
 
 .kanban, .kitchen-board, .chart-grid, .table-grid, .report-grid {
@@ -9822,5 +9850,156 @@ html[data-theme="dark"] .admin-shell {
   .admin-recent-order-status {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   ATTENDANCE EXPORT — dialog & trigger button
+═══════════════════════════════════════════════════ */
+
+.admin-attendance-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.attendance-export-trigger-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Modal override */
+.attendance-export-modal {
+  width: min(660px, 96vw);
+  max-height: 92vh;
+  overflow-y: auto;
+}
+
+.attendance-export-body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 20px 24px 24px;
+}
+
+.attendance-export-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.attendance-export-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary, #111827);
+  letter-spacing: 0.01em;
+}
+
+.attendance-export-sublabel {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-muted, #6b7280);
+}
+
+/* Format picker cards */
+.attendance-export-format-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.attendance-export-format-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 12px;
+  border: 2px solid var(--color-border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--color-section-bg, #f9fafb);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+  text-align: center;
+}
+
+.attendance-export-format-btn span {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary, #111827);
+}
+
+.attendance-export-format-btn small {
+  font-size: 11px;
+  color: var(--color-text-muted, #6b7280);
+}
+
+.attendance-export-format-btn.active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.attendance-export-format-btn.active span {
+  color: #1d4ed8;
+}
+
+/* Filters grid */
+.attendance-export-filters {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+/* Custom date range */
+.attendance-export-custom-dates {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+/* Action buttons row */
+.attendance-export-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 4px;
+  border-top: 1px solid var(--color-border, #e5e7eb);
+}
+
+/* Loading spinner */
+.attendance-export-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: export-spin 0.7s linear infinite;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+@keyframes export-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Responsive */
+@media (max-width: 560px) {
+  .attendance-export-filters {
+    grid-template-columns: 1fr;
+  }
+  .attendance-export-format-row {
+    grid-template-columns: 1fr;
+  }
+  .attendance-export-custom-dates {
+    grid-template-columns: 1fr;
   }
 }

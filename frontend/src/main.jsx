@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useMemo, useRef, useState 
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import axios from "axios";
-import { Html5QrcodeScanner } from "html5-qrcode";
+import { Html5Qrcode } from "html5-qrcode";
 import { io } from "socket.io-client";
 import {
   BarChart3,
@@ -55,6 +55,9 @@ import {
   WalletCards,
   X,
   Zap,
+  Download,
+  FileText,
+  FileSpreadsheet,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -1614,6 +1617,9 @@ function CheckoutPage() {
       return;
     }
 
+    // Capture payment method before any async to avoid stale closure
+    const paymentMethod = form.paymentMethod;
+
     setSubmitting(true);
     try {
       const receiptSnapshot = {
@@ -1643,24 +1649,28 @@ function CheckoutPage() {
           specialInstructions: item.specialInstructions,
         })),
       };
+
       const order = unwrap(await api.post("/orders", payload));
-      const paymentResponse = unwrap(await api.post("/payments", { orderId: order._id, paymentMethod: form.paymentMethod, amount: total }));
-      cart.clear();
-      if (form.paymentMethod === "payhere") {
-        setSuccessReceipt({
-          ...receiptSnapshot,
-          orderId: order._id,
-          orderNumber: order.orderNumber,
-          paymentStatus: "redirecting",
-        });
-        window.setTimeout(() => redirectToPayHere(paymentResponse.checkoutUrl, paymentResponse.payhereData), 400);
+      const paymentResponse = unwrap(await api.post("/payments", { orderId: order._id, paymentMethod, amount: total }));
+
+      if (paymentMethod === "payhere") {
+        if (!paymentResponse?.checkoutUrl || !paymentResponse?.payhereData) {
+          setError("PayHere checkout data not received from server. Check backend credentials.");
+          setSubmitting(false);
+          return;
+        }
+        cart.clear();
+        // Redirect immediately — no timeout needed, form.submit() is synchronous navigation
+        redirectToPayHere(paymentResponse.checkoutUrl, paymentResponse.payhereData);
         return;
       }
+
+      cart.clear();
       setSuccessReceipt({
         ...receiptSnapshot,
         orderId: order._id,
         orderNumber: order.orderNumber,
-        paymentStatus: form.paymentMethod === "payhere" ? "pending" : "paid",
+        paymentStatus: "paid",
       });
     } catch (err) {
       const status = err.response?.status;
@@ -1881,30 +1891,98 @@ function CheckoutSuccess({ receipt }) {
 function PaymentPage() {
   const { orderId } = useParams();
   const location = useLocation();
-  const { data: order, load } = useResource(`/orders/${orderId}`, null);
-  const { data: payment } = useResource(`/payments/order/${orderId}`, null);
-  const paymentStatus = new URLSearchParams(location.search).get("status");
+  const navigate = useNavigate();
+  const { data: order, load: loadOrder } = useResource(`/orders/${orderId}`, null);
+  const { data: payment, load: loadPayment } = useResource(`/payments/order/${orderId}`, null);
+  const { socket } = useSocket();
+  const urlStatus = new URLSearchParams(location.search).get("status");
 
+  const isPaid = order?.paymentStatus === "paid" || payment?.status === "paid";
+  const isCancelled = urlStatus === "cancel" && !isPaid;
+
+  // Poll every 3 s while payment is still pending
   useEffect(() => {
-    const timer = window.setInterval(load, 3000);
+    if (isPaid) return;
+    const timer = window.setInterval(() => { loadOrder(); loadPayment(); }, 3000);
     return () => window.clearInterval(timer);
-  }, [load]);
+  }, [isPaid, loadOrder, loadPayment]);
+
+  // Real-time update via Socket.io when PayHere notify_url callback fires
+  useEffect(() => {
+    if (!socket || !orderId) return;
+    socket.emit("join-order", orderId);
+    const refresh = () => { loadOrder(); loadPayment(); };
+    socket.on("payment:updated", refresh);
+    socket.on("payment-updated", refresh);
+    return () => {
+      socket.off("payment:updated", refresh);
+      socket.off("payment-updated", refresh);
+    };
+  }, [socket, orderId, loadOrder, loadPayment]);
+
+  const iconColor = isPaid ? "#22c55e" : isCancelled ? "#ef4444" : "#f59e0b";
 
   return (
     <CustomerLayout>
-      <Header title="Payment" />
-      <div className="payment-card">
-        <CreditCard size={40} />
-        <h2>{order?.paymentStatus === "paid" ? "Payment complete" : paymentStatus === "cancel" ? "Payment cancelled" : "Payment pending"}</h2>
+      <Header title="Payment Status" />
+      <div className="payment-card" style={{ textAlign: "center" }}>
+        <CreditCard size={44} style={{ color: iconColor }} />
+
+        <h2 style={{ color: iconColor }}>
+          {isPaid ? "Payment Successful!" : isCancelled ? "Payment Cancelled" : "Awaiting Payment…"}
+        </h2>
+
         <p>
-          {order?.paymentStatus === "paid"
-            ? "Your PayHere payment was verified and the order has been updated."
-            : paymentStatus === "cancel"
-              ? "The PayHere checkout was cancelled. You can return to the menu and place the order again."
-              : "Waiting for PayHere confirmation. This page will refresh automatically when the payment notification arrives."}
+          {isPaid
+            ? "Your PayHere payment has been verified. Your order is confirmed and being prepared."
+            : isCancelled
+            ? "You cancelled the PayHere checkout. Your order is saved — you can retry or go back to the menu."
+            : "Waiting for PayHere to confirm your payment. This page updates automatically — you do not need to refresh."}
         </p>
-        {payment?.transactionId && <p className="muted">Transaction ID: {payment.transactionId}</p>}
-        <Link className="btn btn-primary" to={`/customer/tracking/${order?.orderNumber || orderId}`}>Track order</Link>
+
+        {order && (
+          <div className="payment-summary">
+            <div className="payment-summary-row"><span>Order</span><strong>{order.orderNumber}</strong></div>
+            <div className="payment-summary-row"><span>Amount</span><strong>{money(order.totalAmount)}</strong></div>
+            <div className="payment-summary-row">
+              <span>Status</span>
+              <strong style={{ color: iconColor, textTransform: "capitalize" }}>
+                {payment?.status || order?.paymentStatus || "pending"}
+              </strong>
+            </div>
+            {payment?.transactionId && (
+              <div className="payment-summary-row">
+                <span>Transaction</span>
+                <strong style={{ fontSize: "0.75rem", wordBreak: "break-all" }}>{payment.transactionId}</strong>
+              </div>
+            )}
+          </div>
+        )}
+
+        {!isPaid && !isCancelled && (
+          <p style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: "0.5rem" }}>
+            Auto-refreshing every 3 seconds via Socket.io…
+          </p>
+        )}
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "16px" }}>
+          {isPaid && (
+            <Link className="btn btn-primary" to={`/customer/tracking/${order?.orderNumber || orderId}`}>
+              <ReceiptText size={16} /> Track your order
+            </Link>
+          )}
+          {isCancelled && (
+            <>
+              <button className="btn btn-primary" onClick={() => navigate(-1)}>Retry payment</button>
+              <Link className="btn btn-soft" to="/customer/menu"><Plus size={16} /> Back to menu</Link>
+            </>
+          )}
+          {!isPaid && !isCancelled && (
+            <Link className="btn btn-soft" to={`/customer/tracking/${order?.orderNumber || orderId}`}>
+              <ReceiptText size={16} /> Track order
+            </Link>
+          )}
+        </div>
       </div>
     </CustomerLayout>
   );
@@ -2557,17 +2635,49 @@ function StaffAttendanceWidget() {
 
   useEffect(() => {
     if (!scanOpen) return undefined;
-    const scanner = new Html5QrcodeScanner(scannerId.current, { fps: 10, qrbox: { width: 240, height: 240 } }, false);
-    scanner.render(
-      async (decodedText) => {
-        await scanner.clear();
+    let scanner = null;
+    let processed = false;
+
+    const onSuccess = (decodedText) => {
+      if (processed) return;
+      processed = true;
+      // Defer stop — calling stop() from inside the qrcode callback causes reentrant issues
+      setTimeout(async () => {
+        try { await scanner?.stop(); } catch {}
+        try { await scanner?.clear(); } catch {}
+        scanner = null;
         setScanOpen(false);
         await markFromQr(decodedText);
-      },
-      () => {}
-    );
+      }, 0);
+    };
+
+    const tryStart = async () => {
+      const elementId = scannerId.current;
+      if (!document.getElementById(elementId)) return;
+      scanner = new Html5Qrcode(elementId);
+      const config = { fps: 10, qrbox: { width: 240, height: 240 } };
+      try {
+        await scanner.start({ facingMode: "environment" }, config, onSuccess);
+      } catch {
+        // Fallback to front camera (laptops without back camera)
+        try {
+          await scanner.start({ facingMode: "user" }, config, onSuccess);
+        } catch (err) {
+          console.warn("QR camera failed:", err);
+          setError("Camera could not start. Please allow camera access.");
+          setScanOpen(false);
+        }
+      }
+    };
+
+    tryStart();
+
     return () => {
-      scanner.clear().catch(() => {});
+      processed = true;
+      if (scanner) {
+        scanner.stop().catch(() => {}).then(() => scanner?.clear().catch(() => {}));
+        scanner = null;
+      }
     };
   }, [scanOpen]);
 
@@ -3002,17 +3112,49 @@ function StaffAttendanceKioskPage() {
 
   useEffect(() => {
     if (!scanOpen) return undefined;
-    const scanner = new Html5QrcodeScanner(scannerId.current, { fps: 10, qrbox: { width: 240, height: 240 } }, false);
-    scanner.render(
-      async (decodedText) => {
-        await scanner.clear();
+    let scanner = null;
+    let processed = false;
+
+    const onSuccess = (decodedText) => {
+      if (processed) return;
+      processed = true;
+      // Defer stop — calling stop() from inside the qrcode callback causes reentrant issues
+      setTimeout(async () => {
+        try { await scanner?.stop(); } catch {}
+        try { await scanner?.clear(); } catch {}
+        scanner = null;
         setScanOpen(false);
         await loadStatus(decodedText, { select: true });
-      },
-      () => {}
-    );
+      }, 0);
+    };
+
+    const tryStart = async () => {
+      const elementId = scannerId.current;
+      if (!document.getElementById(elementId)) return;
+      scanner = new Html5Qrcode(elementId);
+      const config = { fps: 10, qrbox: { width: 240, height: 240 } };
+      try {
+        await scanner.start({ facingMode: "environment" }, config, onSuccess);
+      } catch {
+        // Fallback to front camera (laptops without back camera)
+        try {
+          await scanner.start({ facingMode: "user" }, config, onSuccess);
+        } catch (err) {
+          console.warn("QR camera failed:", err);
+          setError("Camera could not start. Please allow camera access.");
+          setScanOpen(false);
+        }
+      }
+    };
+
+    tryStart();
+
     return () => {
-      scanner.clear().catch(() => {});
+      processed = true;
+      if (scanner) {
+        scanner.stop().catch(() => {}).then(() => scanner?.clear().catch(() => {}));
+        scanner = null;
+      }
     };
   }, [scanOpen]);
 
@@ -4127,6 +4269,188 @@ function AdminPayrollPage() {
   );
 }
 
+function AttendanceExportDialog({ open, onClose, staffUsers }) {
+  const [format, setFormat] = useState("xlsx");
+  const [rangePreset, setRangePreset] = useState("this-month");
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
+  const [employeeFilter, setEmployeeFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [toast, setToast] = useState("");
+  const [exportError, setExportError] = useState("");
+
+  const getDateRange = () => {
+    if (rangePreset === "custom") return { startDate: customStart, endDate: customEnd };
+    const now = new Date();
+    const today = now.toISOString().slice(0, 10);
+    const offset = (n) => { const d = new Date(now); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+    switch (rangePreset) {
+      case "today": return { startDate: today, endDate: today };
+      case "yesterday": return { startDate: offset(-1), endDate: offset(-1) };
+      case "last-7-days": return { startDate: offset(-6), endDate: today };
+      case "this-week": { const dow = now.getDay(); const mo = dow === 0 ? -6 : 1 - dow; return { startDate: offset(mo), endDate: today }; }
+      case "last-week": { const dow = now.getDay(); const lmo = dow === 0 ? -13 : 1 - dow - 7; return { startDate: offset(lmo), endDate: offset(lmo + 6) }; }
+      case "this-month": return { startDate: new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10), endDate: today };
+      case "last-month": return { startDate: new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10), endDate: new Date(now.getFullYear(), now.getMonth(), 0).toISOString().slice(0, 10) };
+      case "current-year": return { startDate: new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10), endDate: today };
+      default: return { startDate: today, endDate: today };
+    }
+  };
+
+  const handleExport = async () => {
+    const { startDate, endDate } = getDateRange();
+    if (rangePreset === "custom" && (!customStart || !customEnd)) {
+      setExportError("Please select both start and end dates for the custom range.");
+      return;
+    }
+    setLoading(true);
+    setExportError("");
+    setToast("");
+    try {
+      const response = await api.post(
+        "/admin/attendance/export",
+        { format, startDate, endDate, role: roleFilter || undefined, employeeId: employeeFilter || undefined, status: statusFilter || undefined },
+        { responseType: "blob" }
+      );
+      const today = new Date().toISOString().slice(0, 10);
+      const ext = format === "pdf" ? "pdf" : "xlsx";
+      const fileName = `Attendance_Report_${today}.${ext}`;
+      const mimeType = format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      const blob = new Blob([response.data], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setToast(`Downloaded: ${fileName}`);
+    } catch (err) {
+      if (err.response?.data instanceof Blob) {
+        const text = await err.response.data.text().catch(() => "");
+        try { setExportError(JSON.parse(text).message || "Export failed."); } catch { setExportError("Export failed. Please try again."); }
+      } else {
+        setExportError(apiErrorMessage(err, "Export failed. Please try again."));
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!open) return null;
+
+  return (
+    <div className="modal-backdrop">
+      <div className="modal attendance-export-modal">
+        <div className="modal-head">
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Download size={18} />
+            <h3>Export Attendance Report</h3>
+          </div>
+          <Button variant="ghost" onClick={onClose} type="button"><X size={16} /></Button>
+        </div>
+
+        <div className="attendance-export-body">
+          {/* Format selector */}
+          <div className="attendance-export-section">
+            <span className="attendance-export-label">Export Format</span>
+            <div className="attendance-export-format-row">
+              <button type="button" className={`attendance-export-format-btn${format === "xlsx" ? " active" : ""}`} onClick={() => setFormat("xlsx")}>
+                <FileSpreadsheet size={20} />
+                <span>Excel (.xlsx)</span>
+                <small>Editable spreadsheet with styling</small>
+              </button>
+              <button type="button" className={`attendance-export-format-btn${format === "pdf" ? " active" : ""}`} onClick={() => setFormat("pdf")}>
+                <FileText size={20} />
+                <span>PDF</span>
+                <small>Landscape report with charts</small>
+              </button>
+            </div>
+          </div>
+
+          {/* Date range */}
+          <div className="attendance-export-section">
+            <label className="attendance-export-label">Date Range</label>
+            <select className="input" value={rangePreset} onChange={(e) => setRangePreset(e.target.value)}>
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="last-7-days">Last 7 Days</option>
+              <option value="this-week">This Week</option>
+              <option value="last-week">Last Week</option>
+              <option value="this-month">This Month</option>
+              <option value="last-month">Last Month</option>
+              <option value="current-year">Current Year</option>
+              <option value="custom">Custom Range</option>
+            </select>
+            {rangePreset === "custom" && (
+              <div className="attendance-export-custom-dates">
+                <label className="attendance-export-sublabel">
+                  From
+                  <Input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} />
+                </label>
+                <label className="attendance-export-sublabel">
+                  To
+                  <Input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} />
+                </label>
+              </div>
+            )}
+          </div>
+
+          {/* Filters */}
+          <div className="attendance-export-section">
+            <span className="attendance-export-label">Filters (optional)</span>
+            <div className="attendance-export-filters">
+              <label className="attendance-export-sublabel">
+                Department
+                <select className="input" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>
+                  <option value="">All Departments</option>
+                  <option value="waiter">Waiter</option>
+                  <option value="chef">Chef</option>
+                  <option value="kitchen">Kitchen</option>
+                  <option value="staff">Staff</option>
+                </select>
+              </label>
+              <label className="attendance-export-sublabel">
+                Employee
+                <select className="input" value={employeeFilter} onChange={(e) => setEmployeeFilter(e.target.value)}>
+                  <option value="">All Employees</option>
+                  {staffUsers.map((u) => <option key={u._id} value={u._id}>{u.name}</option>)}
+                </select>
+              </label>
+              <label className="attendance-export-sublabel">
+                Attendance Status
+                <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                  <option value="">All Statuses</option>
+                  <option value="present">Present</option>
+                  <option value="absent">Absent</option>
+                  <option value="late">Late</option>
+                  <option value="short-leave">Short Leave</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          {toast && <p className="success" style={{ margin: 0 }}>{toast}</p>}
+          {exportError && <p className="error" style={{ margin: 0 }}>{exportError}</p>}
+
+          {/* Actions */}
+          <div className="attendance-export-actions">
+            <Button variant="ghost" onClick={onClose} type="button" disabled={loading}>Cancel</Button>
+            <Button onClick={handleExport} type="button" disabled={loading}>
+              {loading
+                ? <><span className="attendance-export-spinner" /> Generating report…</>
+                : <><Download size={16} /> Export Report</>}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AdminAttendancePage() {
   const { data: users } = useResource("/admin/users");
   const { data: attendanceRecords, load } = useResource("/admin/attendance");
@@ -4138,6 +4462,7 @@ function AdminAttendancePage() {
   const [rangeFilter, setRangeFilter] = useState("monthly");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [exportOpen, setExportOpen] = useState(false);
   const now = new Date();
   const visibleAttendance = attendanceRecords.filter((record) => {
     const recordDate = new Date(record.date);
@@ -4185,7 +4510,12 @@ function AdminAttendancePage() {
 
   return (
     <StaffLayout role="admin">
-      <Header title="Staff attendance" />
+      <div className="admin-attendance-header-row">
+        <Header title="Staff attendance" />
+        <Button type="button" onClick={() => setExportOpen(true)} className="attendance-export-trigger-btn">
+          <Download size={16} /> Export Report
+        </Button>
+      </div>
       {message && <p className="success">{message}</p>}
       {error && <p className="error">{error}</p>}
 
@@ -4195,6 +4525,8 @@ function AdminAttendancePage() {
         <StatCard icon={Clock} label="Short leave" value={shortLeaveCount} />
         <StatCard icon={CalendarDays} label="Worked hours" value={totalWorkedHours} />
       </section>
+
+      <AttendanceExportDialog open={exportOpen} onClose={() => setExportOpen(false)} staffUsers={staffUsers} />
 
       <div className="admin-attendance-view-layout">
         <section className="chart-card admin-attendance-list-card">
